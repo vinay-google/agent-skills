@@ -43,21 +43,29 @@ When asked to build and deploy the extension, execute these steps in order:
          --quiet
      ```
 
-2. **Scaffold the Node.js Express App (`package.json` and `index.js`)**:
+2. **Scaffold the Modular Node.js Express App (`package.json`, `firestore.js`, `starter.js`, `action.js`, `portal.js`, and `index.js`)**:
    - Create `package.json` with `"type": "module"` and install `express`,
      `@google-cloud/firestore`, and `@google/genai`.
-   - Listen on `process.env.PORT || 8080` and use `express.json()`.
-   - Initialize the `@google-cloud/firestore` client with
-     `ignoreUndefinedProperties: true` and configure two Firestore
-     collections:
-     - `studio_triggers`: stores active Google Workspace Studio starter
-       subscriptions keyed by `encodeURIComponent(String(triggerId))`.
-     - `support_tickets`: stores tickets submitted through the Support Quick
-       Portal.
-   - Implement `GET /`, `POST /api/submit-ticket`, `POST /onConfigTrigger`,
-     `POST /onManageTrigger`, `POST /onConfigUrgency`, and
-     `POST /onExecuteUrgency` following the exact JSON schemas and Firestore
-     operations in Section 3 and Section 4.
+   - Organize the source into five focused files for readability:
+     - `firestore.js`: Initializes the `@google-cloud/firestore` client with
+       `ignoreUndefinedProperties: true`, exports `triggersCollection`
+       (`studio_triggers`) and `ticketsCollection` (`support_tickets`), and
+       exports `refreshTokenInFirestore(req)`.
+     - `starter.js`: Exports `onConfigTrigger` (`POST /onConfigTrigger`) and
+       `onManageTrigger` (`POST /onManageTrigger`) for the `workflowTrigger`
+       starter step.
+     - `action.js`: Exports `onConfigUrgency` (`POST /onConfigUrgency`) and
+       `onExecuteUrgency` (`POST /onExecuteUrgency`) for the `workflowAction`
+       step, calling `gemini-3.8-flash` on the Gemini Enterprise Agent Platform
+       with structured enum output (`["High", "Normal"]`) and a
+       `detectKeywordUrgency()` fallback (`urgent`, `blocker`, `critical`).
+     - `portal.js`: Exports `renderPortal` (`GET /`) and `submitTicket`
+       (`POST /api/submit-ticket`), firing active triggers via `triggers.fire`
+       and logging tickets to `support_tickets`.
+     - `index.js`: Wires all Express routes (`GET /`, `POST /api/submit-ticket`,
+       `POST /onConfigTrigger`, `POST /onManageTrigger`,
+       `POST /onConfigUrgency`, `POST /onExecuteUrgency`) and listens on
+       `process.env.PORT || 8080`.
 
 3. **Deploy to Cloud Run**:
    - Deploy as `support-extension` in `us-central1` with the project and
