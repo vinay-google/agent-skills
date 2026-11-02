@@ -245,8 +245,8 @@ return {
 ## **4. Gemini API on the Gemini Enterprise Agent Platform**
 
 When asked to add AI capabilities in Phase 3:
-* Call the **Gemini API on the Gemini Enterprise Agent Platform** (`aiplatform.googleapis.com`) using `UrlFetchApp.fetch` with model **`gemini-2.5-flash`**.
-* Endpoint: `https://aiplatform.googleapis.com/v1/projects/${PROJECT_ID}/locations/global/publishers/google/models/gemini-2.5-flash:generateContent`
+* Call the **Gemini API on the Gemini Enterprise Agent Platform** (`aiplatform.googleapis.com`) using `UrlFetchApp.fetch` with model **`gemini-3.8-flash`**.
+* Endpoint: `https://aiplatform.googleapis.com/v1/projects/${PROJECT_ID}/locations/global/publishers/google/models/gemini-3.8-flash:generateContent`
 * Headers:
   * `'Authorization': 'Bearer ' + ScriptApp.getOAuthToken()`
   * `'x-goog-user-project': PROJECT_ID`
