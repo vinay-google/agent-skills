@@ -7,6 +7,7 @@ A collection of reusable public **Agent Skills** (`SKILL.md`) for AI coding agen
 | Skill | Path | Description |
 | :--- | :--- | :--- |
 | **[`workspace-studio-node-addon`](skills/workspace-studio-node-addon/SKILL.md)** | [`skills/workspace-studio-node-addon/SKILL.md`](skills/workspace-studio-node-addon/SKILL.md) | End-to-end automation skill for building, deploying, and upgrading HTTP Google Workspace Studio Add-ons (Custom Starter Steps and Custom Action Steps) in Node.js on Cloud Run with Cloud Firestore and the Gemini Enterprise Agent Platform. |
+| **[`chat-app-dev`](skills/chat-app-dev/SKILL.md)** | [`skills/chat-app-dev/SKILL.md`](skills/chat-app-dev/SKILL.md) | End-to-end automation skill for building Apps Script Google Chat Apps (`clasp`), managing their configuration programmatically via the Google Chat App Config API (`gsuiteaddons.googleapis.com`), and integrating Gemini on the Gemini Enterprise Agent Platform. |
 
 ## Quick Install
 
