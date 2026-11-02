@@ -167,22 +167,37 @@ Always include `"addOns": { "common": { ... }, "chat": {} }` and required OAuth 
   * For `MESSAGE_ACTION`, the target message that the user invoked the action on is in `payload.message.text`.
 
 ### **Canonical Response Format (`hostAppDataAction`)**
-* To reply with a text message or Card in `onMessage`, `onAddedToSpace`, or `onAppCommand`, you MUST return:
+* **Important:** Do **NOT** populate both `text` and `cardsV2` with the same content in `message`—Google Chat renders both, which duplicates the response. Use **either** a text-only response (for simple greetings/echoes) **or** a card-only response (for structured commands, summaries, and Gemini AI responses):
 
+* **Text-only response:**
 ```javascript
 return {
   hostAppDataAction: {
     chatDataAction: {
       createMessageAction: {
         message: {
-          text: "Your message text here",
+          text: "Your message text here"
+        }
+      }
+    }
+  }
+};
+```
+
+* **Card-only response (recommended for Gemini AI responses, `/ask`, and `Summarize message`):**
+```javascript
+return {
+  hostAppDataAction: {
+    chatDataAction: {
+      createMessageAction: {
+        message: {
           cardsV2: [
             {
               cardId: "response-card",
               card: {
                 header: {
-                  title: "Card Title",
-                  subtitle: "Card Subtitle"
+                  title: "GenAI Chat Assistant",
+                  subtitle: "Powered by Gemini"
                 },
                 sections: [
                   {
