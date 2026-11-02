@@ -189,7 +189,8 @@ return {
                     widgets: [
                       {
                         textParagraph: {
-                          text: "Card body text"
+                          text: "Card body text",
+                          textSyntax: "MARKDOWN"
                         }
                       }
                     ]
