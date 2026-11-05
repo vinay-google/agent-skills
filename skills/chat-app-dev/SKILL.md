@@ -166,10 +166,15 @@ Always include `"addOns": { "common": { ... }, "chat": {} }` and required OAuth 
   * For `SLASH_COMMAND`, the user's message/arguments are in `payload.message.argumentText` (or `payload.message.text`).
   * For `MESSAGE_ACTION`, the target message that the user invoked the action on is in `payload.message.text`.
 
-### **Canonical Response Format (`hostAppDataAction`)**
-* **Important:** Do **NOT** populate both `text` and `cardsV2` with the same content in `message`—Google Chat renders both, which duplicates the response. Use **either** a text-only response (for simple greetings/echoes) **or** a card-only response (for structured commands, summaries, and Gemini AI responses):
+* **`onSystemCommand(event)`** (called when a user clicks **Stop** on an active streaming message):
+  * Cancelled stream resource name: `const streamMessage = event.chat && event.chat.systemCommandPayload && event.chat.systemCommandPayload.systemCommandMetadata && event.chat.systemCommandPayload.systemCommandMetadata.cancelStream && event.chat.systemCommandPayload.systemCommandMetadata.cancelStream.streamMessage;`
 
-* **Text-only response:**
+### **Canonical Response Format (`hostAppDataAction`)**
+* **Important:**
+  * When replying synchronously (Phase 1 echo, Phase 2 `Help` quick command, or Phase 2 error fallbacks), return a `hostAppDataAction` object. Do **NOT** populate both `text` and `cardsV2` with the same content in `message`—Google Chat renders both, which duplicates the response.
+  * When streaming a reply asynchronously using `spaces.streamMessages` (Phase 3 DMs, `/ask`, and `Summarize message`, or `onSystemCommand`), return an empty object `{}` from the Apps Script handler because the message is created and committed through the Chat API.
+
+* **Text-only synchronous response:**
 ```javascript
 return {
   hostAppDataAction: {
@@ -184,7 +189,7 @@ return {
 };
 ```
 
-* **Card-only response (recommended for Gemini AI responses, `/ask`, and `Summarize message`):**
+* **Card-only synchronous response (for `Help` command or structured cards):**
 ```javascript
 return {
   hostAppDataAction: {
@@ -197,7 +202,7 @@ return {
               card: {
                 header: {
                   title: "GenAI Chat Assistant",
-                  subtitle: "Powered by Gemini"
+                  subtitle: "Available Commands"
                 },
                 sections: [
                   {
@@ -258,12 +263,108 @@ return {
 
 ---
 
-## **4. Gemini API on the Gemini Enterprise Agent Platform**
+## **4. Streaming Gemini AI Responses with the Google Chat API (`spaces.streamMessages`)**
 
-When asked to add AI capabilities in Phase 3:
+When asked to add AI capabilities and message streaming in Phase 3:
+
+### **A. App Authentication (`https://www.googleapis.com/auth/chat.bot`) via Keyless Service Account Impersonation**
+Message streaming (`spaces.streamMessages`) requires **app authentication** with the `https://www.googleapis.com/auth/chat.bot` scope (user OAuth tokens are not supported). Never export a JSON private key (`credentials.json`); instead, use keyless service account impersonation via the **IAM Service Account Credentials API** (`iamcredentials.googleapis.com`):
+
+1. In Cloud Shell, create a service account in the project and grant the user `roles/iam.serviceAccountTokenCreator`:
+   ```bash
+   gcloud services enable iamcredentials.googleapis.com
+   gcloud iam service-accounts create chat-app-sa --display-name="Chat App Service Account" || true
+   gcloud iam service-accounts add-iam-policy-binding "chat-app-sa@${PROJECT_ID}.iam.gserviceaccount.com" \
+     --member="user:${USER_EMAIL}" \
+     --role="roles/iam.serviceAccountTokenCreator"
+   ```
+2. In `Code.gs`, mint a short-lived `chat.bot` access token on demand using `ScriptApp.getOAuthToken()`:
+   ```javascript
+   function getChatAppAccessToken() {
+     const saEmail = `chat-app-sa@${PROJECT_ID}.iam.gserviceaccount.com`;
+     const url = `https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/${encodeURIComponent(saEmail)}:generateAccessToken`;
+     const response = UrlFetchApp.fetch(url, {
+       method: 'post',
+       contentType: 'application/json',
+       headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() },
+       payload: JSON.stringify({
+         scope: ['https://www.googleapis.com/auth/chat.bot']
+       })
+     });
+     return JSON.parse(response.getContentText()).accessToken;
+   }
+   ```
+
+### **B. Gemini API on the Gemini Enterprise Agent Platform (`gemini-3.8-flash`)**
 * Call the **Gemini API on the Gemini Enterprise Agent Platform** (`aiplatform.googleapis.com`) using `UrlFetchApp.fetch` with model **`gemini-3.8-flash`**.
 * Endpoint: `https://aiplatform.googleapis.com/v1/projects/${PROJECT_ID}/locations/global/publishers/google/models/gemini-3.8-flash:generateContent`
 * Headers:
   * `'Authorization': 'Bearer ' + ScriptApp.getOAuthToken()`
   * `'x-goog-user-project': PROJECT_ID`
-* Always wrap API calls in `try / catch` and return a helpful message if an error occurs.
+
+### **C. Streaming Messages Lifecycle (`spaces.streamMessages`)**
+For direct messages (`onMessage`), `/ask` (`SLASH_COMMAND` ID `2`), and `Summarize message` (`MESSAGE_ACTION` ID `3`), stream the response incrementally into the thread of the triggering message (`referencedMessage` = `message.name`, e.g., `spaces/{space}/messages/{message}`):
+
+1. **Start a stream (`spaces.streamMessages.create`):**
+   * `POST https://chat.googleapis.com/v1/${spaceName}/streamMessages`
+   * Headers: `'Authorization': 'Bearer ' + appAccessToken`, `'Content-Type': 'application/json'`
+   * Body:
+     ```json
+     {
+       "referencedMessage": "spaces/SPACE_ID/messages/MESSAGE_ID",
+       "progressText": "Thinking...",
+       "markupSyntax": "MARKUP_SYNTAX_MARKDOWN"
+     }
+     ```
+   * Save `streamName = stream.name` (`spaces/{space}/streamMessages/{stream_message}`) and `chunkToken = stream.nextChunkToken`.
+
+2. **Append intermediate steps and text chunks (`spaces.streamMessages.appendStreamMessageContent`):**
+   * `POST https://chat.googleapis.com/v1/${streamName}:appendStreamMessageContent`
+   * Pass the latest `chunkToken` and update `chunkToken = response.nextChunkToken` after each call:
+     * Before calling Gemini, append an initial reasoning step and update `progressText`:
+       ```json
+       {
+         "chunkToken": "CURRENT_CHUNK_TOKEN",
+         "progressText": "Querying Gemini 3.8 Flash...",
+         "streamContentChunks": [
+           {
+             "step": {
+               "title": "Analyze request",
+               "description": "Preparing prompt for Gemini 3.8 Flash."
+             }
+           }
+         ]
+       }
+       ```
+     * After Gemini returns the generated Markdown text, stream a completion `step` and the `text` chunks (for example, splitting paragraphs or sections across `appendStreamMessageContent` calls):
+       ```json
+       {
+         "chunkToken": "LATEST_CHUNK_TOKEN",
+         "progressText": "Streaming response...",
+         "streamContentChunks": [
+           {
+             "step": {
+               "title": "Synthesize response",
+               "description": "Generated answer with Gemini 3.8 Flash."
+             }
+           },
+           {
+             "text": "Generated Markdown text chunk...\n\n"
+           }
+         ]
+       }
+       ```
+
+3. **Finalize the stream (`spaces.streamMessages.commit`):**
+   * `POST https://chat.googleapis.com/v1/${streamName}:commit`
+   * Body:
+     ```json
+     {
+       "chunkToken": "LATEST_CHUNK_TOKEN"
+     }
+     ```
+   * Return `{}` from `onMessage` / `onAppCommand` once the stream is committed so Google Chat does not post a duplicate synchronous reply.
+
+4. **Handle errors & user-initiated stream cancellation (`spaces.streamMessages.delete` & `onSystemCommand`):**
+   * If an error occurs after a stream has started, call `DELETE https://chat.googleapis.com/v1/${streamName}` (or commit an error message) so the stream does not hang for the 5-minute timeout.
+   * Implement `onSystemCommand(event)` to handle the **Stop** button (`event.chat.systemCommandPayload.systemCommandMetadata.cancelStream.streamMessage`), calling `DELETE https://chat.googleapis.com/v1/${streamMessage}` (or committing partial output) and returning `{}`.
